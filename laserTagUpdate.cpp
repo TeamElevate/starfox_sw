@@ -27,7 +27,8 @@ volatile int buf[16];
 // Functions                                     
 mraa_result_t writeOne(mraa::Pwm* dev);              
 mraa_result_t writeZero(mraa::Pwm* dev);             
-void writeByte (bool playera, bool playerb, bool shoot, mraa::Pwm* pwm);
+void init(mraa::Pwm* pwm, mraa_gpio_context* x);
+void writeByte (bool playera, bool playerb, bool shoot, mraa::Pwm* pwm, ds4_client_t* controller);
 void readBuffer();
 void edge(void * args); 
                                              
@@ -36,48 +37,45 @@ int main () {
 	bool rightTrigger;
     // Initialize Controller
 	ds4_client_t* controller = ds4_client_new();
- 	const ds4_controls_t* controllerData;       
-    // Initializing Interrupts                                       
-    mraa_init();
-    mraa_gpio_context x;
-    x = mraa_gpio_init(33);
-    if (x == NULL) {
-	fprintf(stdout, "ERROR WITH GPIO\n");
-	return MRAA_ERROR_UNSPECIFIED;
-    }
-    mraa_gpio_dir(x,MRAA_GPIO_IN);
-    gpio_edge_t rising = MRAA_GPIO_EDGE_RISING;
-
-    mraa_gpio_isr(x, rising, &edge, &x);
-    // Initializing PWM's
-    mraa::Pwm* pwm;                                  
-    pwm = new mraa::Pwm(20);                         
-    fprintf(stdout, "Starting ...\n");               
-    if (pwm == NULL) {                               
-        return MRAA_ERROR_UNSPECIFIED;                
-    }                                                
-    while (pwm->period_us(18) != MRAA_SUCCESS);      
-    fprintf(stdout, "Cycling PWM on IO20 (pwm3) \n");
-    pwm->enable(true); 
-    pwm->write(0.0);
-    fall = true;
-    //ds4_client_rgb(controller,255,0,0);
-    while (running == 0) {
+	const ds4_controls_t* controllerData;       
+    // Initialize MRAA
+    	mraa_init();
+    	mraa_gpio_context* x;                                    
+    	*x = mraa_gpio_init(33);  
+   	 mraa::Pwm* pwm;
+    	pwm = new mraa::Pwm(20);           
+    	init(pwm, x);
+    while (running == 0){ 
 	if (bufferLoaded) { 
 		readBuffer();
 	}
 	else {
-        	// Ping every 0.1 seconds
-//		usleep(1000);
-		// Check if right Trigger is pressed
-		//controllerData = ds4_client_controls(controller);
-		//rightTrigger = controllerData->r2;	
-	
-		writeByte(0,1,1,pwm);
+		writeByte(0,1,1,pwm,controller);
 	}
     }                                                
     delete pwm;                                      
-} 
+}
+ 
+void init(mraa::Pwm* pwm, mraa_gpio_context* x) {
+    	// Initializing Interrupts                                          
+    		if (*x == NULL) {                                                    
+    		    fprintf(stdout, "ERROR WITH RECIEVER\n");                           
+    		}                                                                   
+    		mraa_gpio_dir(*x,MRAA_GPIO_IN);                                      
+    		gpio_edge_t rising = MRAA_GPIO_EDGE_RISING;     	
+ 		mraa_gpio_isr(*x, rising, &edge, x);                                
+ 	   // Initializing PWM's                                               
+    		fprintf(stdout, "Starting ...\n");                                  
+    		if (pwm == NULL) {                                                  
+    			fprintf(stdout,"ERROR LOADING LASER\n");
+		}                                                                   
+    		while (pwm->period_us(18) != MRAA_SUCCESS);                         
+    		fprintf(stdout, "Cycling PWM on IO20 (pwm0) \n");                   
+    		pwm->enable(true);                                                  
+    		pwm->write(0.2);                                                    
+    		fall = true;                                                        
+    		//ds4_client_rgb(controller,255,0,0);     
+}
 
 void readBuffer() {
 	bufferLoaded = false;                
@@ -95,7 +93,9 @@ void readBuffer() {
         // If its a hit record the score                                
 }
                                                    
-void writeByte(bool playera, bool playerb, bool shoot, mraa::Pwm* pwm) {
+void writeByte(bool playera, bool playerb, bool shoot, mraa::Pwm* pwm,  ds4_client_t* controller) {
+	const ds4_controls_t* controllerData = ds4_client_controls(controller);     
+        bool rightTrigger = controllerData->r1;       
 	writeZero(pwm);
 	for (int i = 0; i < 2; i++) {
 		if (playera)
@@ -106,7 +106,7 @@ void writeByte(bool playera, bool playerb, bool shoot, mraa::Pwm* pwm) {
 			writeOne(pwm);
 		else
 			writeZero(pwm);
-		if (shoot)
+		if (rightTrigger)
 			writeOne(pwm);
 		else
 			writeZero(pwm);
@@ -136,7 +136,7 @@ mraa_result_t writeZero(mraa::Pwm* dev) {
 }
 
 void edge (void * args) {
-	usleep(800);
+	usleep(500);
 	mraa_gpio_context* dev = (mraa_gpio_context*) args;
 	if (mraa_gpio_read(*dev) == 0){
 	    fprintf(stdout, "Wrote a Zero to buffer spot %d\n", bufSpot);
